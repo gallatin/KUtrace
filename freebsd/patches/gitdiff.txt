@@ -1,8 +1,14 @@
+commit d0ed33d58c4f8099b5539c62b1ba6dab16e85c12
+Author: Drew Gallatin <gallatin@netflix.com>
+Date:   Tue Oct 4 19:41:05 2022 -0400
+
+    KUtrace support
+
 diff --git a/sys/amd64/amd64/trap.c b/sys/amd64/amd64/trap.c
-index 19b0c5065e68..06fb86454f32 100644
+index 073d41c57488..4d3fba6b9b8a 100644
 --- a/sys/amd64/amd64/trap.c
 +++ b/sys/amd64/amd64/trap.c
-@@ -103,6 +103,8 @@ PMC_SOFT_DEFINE( , , page_fault, write);
+@@ -108,6 +108,8 @@ PMC_SOFT_DEFINE( , , page_fault, write);
  #include <sys/dtrace_bsd.h>
  #endif
  
@@ -11,7 +17,7 @@ index 19b0c5065e68..06fb86454f32 100644
  extern inthand_t IDTVEC(bpt), IDTVEC(bpt_pti), IDTVEC(dbg),
      IDTVEC(fast_syscall), IDTVEC(fast_syscall_pti), IDTVEC(fast_syscall32),
      IDTVEC(int0x80_syscall_pti), IDTVEC(int0x80_syscall);
-@@ -381,8 +383,9 @@ trap(struct trapframe *frame)
+@@ -396,8 +398,9 @@ trap(struct trapframe *frame)
  			if (*p->p_sysent->sv_trap != NULL &&
  			    (*p->p_sysent->sv_trap)(td) == 0)
  				return;
@@ -22,7 +28,7 @@ index 19b0c5065e68..06fb86454f32 100644
  			if (pf == -1)
  				return;
  			if (pf == 0)
-@@ -413,7 +416,9 @@ trap(struct trapframe *frame)
+@@ -428,7 +431,9 @@ trap(struct trapframe *frame)
  			/* transparent fault (due to context switch "late") */
  			KASSERT(PCB_USER_FPU(td->td_pcb),
  			    ("kernel FPU ctx has leaked"));
@@ -32,7 +38,7 @@ index 19b0c5065e68..06fb86454f32 100644
  			return;
  
  		case T_FPOPFLT:		/* FPU operand fetch fault */
-@@ -440,13 +445,17 @@ trap(struct trapframe *frame)
+@@ -455,13 +460,17 @@ trap(struct trapframe *frame)
  		    ("kernel trap doesn't have ucred"));
  		switch (type) {
  		case T_PAGEFLT:			/* page fault */
@@ -50,7 +56,7 @@ index 19b0c5065e68..06fb86454f32 100644
  			return;
  
  		case T_ARITHTRAP:	/* arithmetic trap */
-@@ -1084,6 +1093,7 @@ cpu_fetch_syscall_args(struct thread *td)
+@@ -1212,6 +1221,7 @@ cpu_fetch_syscall_args(struct thread *td)
  	return (0);
  }
  
@@ -58,7 +64,7 @@ index 19b0c5065e68..06fb86454f32 100644
  #include "../../kern/subr_syscall.c"
  
  static void (*syscall_ret_l1d_flush)(void);
-@@ -1188,6 +1198,7 @@ amd64_syscall(struct thread *td, int traced)
+@@ -1316,6 +1326,7 @@ amd64_syscall(struct thread *td, int traced)
  		/* NOT REACHED */
  	}
  #endif
@@ -67,10 +73,10 @@ index 19b0c5065e68..06fb86454f32 100644
  
  	/*
 diff --git a/sys/amd64/conf/GENERIC b/sys/amd64/conf/GENERIC
-index 53c6043a0146..4decde8efabf 100644
+index 9178abba36cc..570543d07023 100644
 --- a/sys/amd64/conf/GENERIC
 +++ b/sys/amd64/conf/GENERIC
-@@ -398,3 +398,6 @@ device		uinput			# install /dev/uinput cdev
+@@ -399,3 +399,6 @@ device		uinput			# install /dev/uinput cdev
  options 	HID_DEBUG		# enable debug msgs
  device		hid			# Generic HID support
  options 	IICHID_SAMPLING		# Workaround missing GPIO INTR support
@@ -78,16 +84,16 @@ index 53c6043a0146..4decde8efabf 100644
 +#KUtrace support
 +options		KUTRACE
 diff --git a/sys/conf/options.amd64 b/sys/conf/options.amd64
-index bc809553f841..be823c0d52d4 100644
+index 8b98aa405953..74d15085f538 100644
 --- a/sys/conf/options.amd64
 +++ b/sys/conf/options.amd64
-@@ -61,3 +61,4 @@ ISCI_LOGGING	opt_isci.h
+@@ -60,3 +60,4 @@ ISCI_LOGGING	opt_isci.h
  
  # EFI Runtime services support
  EFIRT			opt_efirt.h
 +KUTRACE			opt_global.h
 diff --git a/sys/kern/kern_exec.c b/sys/kern/kern_exec.c
-index 33213c8304db..a8833a87eb32 100644
+index cb45d18fbb85..f5f4415d5f58 100644
 --- a/sys/kern/kern_exec.c
 +++ b/sys/kern/kern_exec.c
 @@ -88,6 +88,8 @@ __FBSDID("$FreeBSD$");
@@ -118,7 +124,7 @@ index 33213c8304db..a8833a87eb32 100644
  	sched_clear_tdname(td);
  #endif
 diff --git a/sys/kern/kern_fork.c b/sys/kern/kern_fork.c
-index 0062f7419ac0..8f6dd730fc97 100644
+index 87c14670ae10..ed6f5dc2bbbc 100644
 --- a/sys/kern/kern_fork.c
 +++ b/sys/kern/kern_fork.c
 @@ -85,6 +85,8 @@ __FBSDID("$FreeBSD$");
@@ -130,7 +136,7 @@ index 0062f7419ac0..8f6dd730fc97 100644
  #ifdef KDTRACE_HOOKS
  #include <sys/dtrace_bsd.h>
  dtrace_fork_func_t	dtrace_fasttrap_fork;
-@@ -470,6 +472,8 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
+@@ -469,6 +471,8 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
  	    __rangeof(struct thread, td_startcopy, td_endcopy));
  
  	bcopy(&p2->p_comm, &td2->td_name, sizeof(td2->td_name));
@@ -140,7 +146,7 @@ index 0062f7419ac0..8f6dd730fc97 100644
  	td2->td_flags = TDF_INMEM;
  	td2->td_lend_user_pri = PRI_MAX;
 diff --git a/sys/kern/kern_thr.c b/sys/kern/kern_thr.c
-index 18722cc6a73d..296fc7bfef1b 100644
+index 4c0cfe06f1b4..6eada1425260 100644
 --- a/sys/kern/kern_thr.c
 +++ b/sys/kern/kern_thr.c
 @@ -56,6 +56,9 @@ __FBSDID("$FreeBSD$");
@@ -163,7 +169,7 @@ index 18722cc6a73d..296fc7bfef1b 100644
  	/* let the scheduler know about these things. */
  	sched_fork_thread(td, newtd);
 diff --git a/sys/kern/sched_ule.c b/sys/kern/sched_ule.c
-index 9fd592f9647b..733dfe796e75 100644
+index ba179caf5d34..e3a2e9c494f3 100644
 --- a/sys/kern/sched_ule.c
 +++ b/sys/kern/sched_ule.c
 @@ -65,6 +65,7 @@ __FBSDID("$FreeBSD$");
@@ -174,15 +180,7 @@ index 9fd592f9647b..733dfe796e75 100644
  
  #ifdef HWPMC_HOOKS
  #include <sys/pmckern.h>
-@@ -949,6 +950,7 @@ sched_balance_pair(struct tdq *high, struct tdq *low)
- 		 * new load, possibly sending an IPI to force it to reschedule.
- 		 */
- 		cpu = TDQ_ID(low);
-+
- 		if (cpu != PCPU_GET(cpuid))
- 			tdq_notify(low, td);
- 	}
-@@ -2144,6 +2146,7 @@ sched_switch(struct thread *td, int flags)
+@@ -2198,6 +2199,7 @@ sched_switch(struct thread *td, int flags)
  
  	THREAD_LOCK_ASSERT(td, MA_OWNED);
  
@@ -190,7 +188,7 @@ index 9fd592f9647b..733dfe796e75 100644
  	cpuid = PCPU_GET(cpuid);
  	tdq = TDQ_SELF();
  	ts = td_get_sched(td);
-@@ -2238,6 +2241,8 @@ sched_switch(struct thread *td, int flags)
+@@ -2294,6 +2296,8 @@ sched_switch(struct thread *td, int flags)
  		if (dtrace_vtime_active)
  			(*dtrace_vtime_switch_func)(newtd);
  #endif
@@ -199,7 +197,7 @@ index 9fd592f9647b..733dfe796e75 100644
  		td->td_oncpu = NOCPU;
  		cpu_switch(td, newtd, mtx);
  		cpuid = td->td_oncpu = PCPU_GET(cpuid);
-@@ -2256,6 +2261,7 @@ sched_switch(struct thread *td, int flags)
+@@ -2312,6 +2316,7 @@ sched_switch(struct thread *td, int flags)
  
  	KTR_STATE1(KTR_SCHED, "thread", sched_tdname(td), "running",
  	    "prio:%d", td->td_priority);
@@ -207,7 +205,7 @@ index 9fd592f9647b..733dfe796e75 100644
  }
  
  /*
-@@ -2680,6 +2686,9 @@ sched_add(struct thread *td, int flags)
+@@ -2780,6 +2785,9 @@ sched_add(struct thread *td, int flags)
  	    KTR_ATTR_LINKED, sched_tdname(td));
  	SDT_PROBE4(sched, , , enqueue, td, td->td_proc, NULL, 
  	    flags & SRQ_PREEMPTED);
@@ -217,7 +215,7 @@ index 9fd592f9647b..733dfe796e75 100644
  	THREAD_LOCK_ASSERT(td, MA_OWNED);
  	/*
  	 * Recalculate the priority before we select the target cpu or
-@@ -3036,6 +3045,9 @@ sched_throw(struct thread *td)
+@@ -3136,6 +3144,9 @@ sched_throw(struct thread *td)
  	struct thread *newtd;
  	struct tdq *tdq;
  
@@ -227,7 +225,7 @@ index 9fd592f9647b..733dfe796e75 100644
  	tdq = TDQ_SELF();
  
  	MPASS(td != NULL);
-@@ -3048,6 +3060,8 @@ sched_throw(struct thread *td)
+@@ -3148,6 +3159,8 @@ sched_throw(struct thread *td)
  	thread_lock_block(td);
  
  	newtd = sched_throw_grab(tdq);
@@ -301,41 +299,36 @@ index 33dd50d3d50a..7c56242df895 100644
 +#endif
  }
 diff --git a/sys/kern/subr_trap.c b/sys/kern/subr_trap.c
-index 52559c162249..4d8c7c2025bb 100644
+index 149f386454c7..df22c53ecc76 100644
 --- a/sys/kern/subr_trap.c
 +++ b/sys/kern/subr_trap.c
-@@ -87,6 +87,13 @@ __FBSDID("$FreeBSD$");
- #include <sys/pmckern.h>
+@@ -79,6 +79,14 @@ __FBSDID("$FreeBSD$");
+ #include <sys/epoch.h>
  #endif
  
-+#ifdef KUTRACE
 +#include <sys/kutrace.h>
++#ifdef KUTRACE
 +struct kutrace_ops kutrace_global_ops;
 +bool kutrace_tracing;
 +uint64_t* kutrace_pid_filter;
 +#endif
 +
- #include <security/mac/mac_framework.h>
++
+ /*
+  * Define the code needed before returning to user mode, for trap and
+  * syscall.
+@@ -373,8 +381,11 @@ ast(struct trapframe *framep)
+ 	struct thread *td;
  
- void (*softdep_ast_cleanup)(struct thread *);
-@@ -231,6 +238,8 @@ ast(struct trapframe *framep)
- 	THREAD_LOCK_ASSERT(td, MA_NOTOWNED);
- 	td->td_frame = framep;
- 	td->td_pticks = 0;
-+	
-+	kutrace1(KUTRACE_IRQ + KUTRACE_BOTTOM_HALF, AST_SOFTIRQ);	
- 
- 	/*
- 	 * This updates the td_flag's for the checks below in one
-@@ -381,6 +390,8 @@ ast(struct trapframe *framep)
- #endif
- 
+ 	td = curthread;
++	kutrace1(KUTRACE_IRQ + KUTRACE_BOTTOM_HALF, AST_SOFTIRQ);
+ 	ast_handler(td, framep, false);
  	userret(td, framep);
 +	
 +	kutrace1(KUTRACE_IRQRET + KUTRACE_BOTTOM_HALF, AST_SOFTIRQ);
  }
  
- const char *
+ void
 diff --git a/sys/sys/kutrace.h b/sys/sys/kutrace.h
 new file mode 100644
 index 000000000000..4408b2d5420b
@@ -567,10 +560,10 @@ index 000000000000..4408b2d5420b
 +
 +
 diff --git a/sys/x86/x86/cpu_machdep.c b/sys/x86/x86/cpu_machdep.c
-index f20611ffa20e..9a7f36a1b4c0 100644
+index 7127ca99999e..cc8a6a4da482 100644
 --- a/sys/x86/x86/cpu_machdep.c
 +++ b/sys/x86/x86/cpu_machdep.c
-@@ -104,6 +104,8 @@ __FBSDID("$FreeBSD$");
+@@ -103,6 +103,8 @@ __FBSDID("$FreeBSD$");
  
  #include <contrib/dev/acpica/include/acpi.h>
  
@@ -579,7 +572,7 @@ index f20611ffa20e..9a7f36a1b4c0 100644
  #define	STATE_RUNNING	0x0
  #define	STATE_MWAIT	0x1
  #define	STATE_SLEEPING	0x2
-@@ -286,8 +288,11 @@ acpi_cpu_idle_mwait(uint32_t mwait_hint)
+@@ -285,8 +287,11 @@ acpi_cpu_idle_mwait(uint32_t mwait_hint)
  		v = 0;
  	}
  	cpu_monitor(state, 0, 0);
@@ -591,21 +584,20 @@ index f20611ffa20e..9a7f36a1b4c0 100644
  
  	/*
  	 * SSB cannot be disabled while we sleep, or rather, if it was
-@@ -600,8 +605,12 @@ cpu_idle_mwait(sbintime_t sbt)
+@@ -616,9 +621,10 @@ cpu_idle_mwait(sbintime_t sbt)
+ 	state = &PCPU_PTR(monitorbuf)->idle_state;
+ 	if (cpu_idle_enter(state, STATE_MWAIT)) {
+ 		cpu_monitor(state, 0, 0);
+-		if (atomic_load_int(state) == STATE_MWAIT)
++		if (atomic_load_int(state) == STATE_MWAIT) {
+ 			__asm __volatile("sti; mwait" : : "a" (MWAIT_C1), "c" (0));
+-		else
++			kutrace1(KUTRACE_MONITOREXIT, 2);
++		} else
+ 			enable_intr();
+ 		cpu_idle_exit(state);
  	}
- 
- 	cpu_monitor(state, 0, 0);
--	if (atomic_load_int(state) == STATE_MWAIT)
-+	if (atomic_load_int(state) == STATE_MWAIT) {
-+		kutrace1(KUTRACE_MWAIT, MWAIT_C1);
- 		__asm __volatile("sti; mwait" : : "a" (MWAIT_C1), "c" (0));
-+		/* Equivalent to IRQ_IPI_RESCHED, waking up blocked thread */
-+		kutrace1(KUTRACE_MONITOREXIT, 2);
-+	}
- 	else
- 		enable_intr();
- 	atomic_store_int(state, STATE_RUNNING);
-@@ -694,6 +703,10 @@ cpu_idle_wakeup(int cpu)
+@@ -706,6 +712,10 @@ cpu_idle_wakeup(int cpu)
  	case STATE_SLEEPING:
  		return (0);
  	case STATE_MWAIT:
@@ -645,7 +637,7 @@ index 8f47450b17c3..6fcff9af8a94 100644
  
  void
 diff --git a/sys/x86/x86/local_apic.c b/sys/x86/x86/local_apic.c
-index 8e3c7eb27078..b4a8b032e6d4 100644
+index 609635bdad3d..aba35c6271e1 100644
 --- a/sys/x86/x86/local_apic.c
 +++ b/sys/x86/x86/local_apic.c
 @@ -80,6 +80,8 @@ __FBSDID("$FreeBSD$");
@@ -657,7 +649,7 @@ index 8e3c7eb27078..b4a8b032e6d4 100644
  #ifdef __amd64__
  #define	SDT_APIC	SDT_SYSIGT
  #define	GSEL_APIC	0
-@@ -1326,11 +1328,11 @@ lapic_handle_timer(struct trapframe *frame)
+@@ -1332,11 +1334,11 @@ lapic_handle_timer(struct trapframe *frame)
  	if (CPU_ISSET(PCPU_GET(cpuid), &hlt_cpus_mask))
  		return;
  #endif
@@ -670,7 +662,7 @@ index 8e3c7eb27078..b4a8b032e6d4 100644
  	if (lapic_et.et_active) {
  		td = curthread;
  		td->td_intr_nesting_level++;
-@@ -1340,6 +1342,12 @@ lapic_handle_timer(struct trapframe *frame)
+@@ -1346,6 +1348,12 @@ lapic_handle_timer(struct trapframe *frame)
  		td->td_intr_frame = oldframe;
  		td->td_intr_nesting_level--;
  	}
@@ -684,7 +676,7 @@ index 8e3c7eb27078..b4a8b032e6d4 100644
  }
  
 diff --git a/sys/x86/x86/mp_x86.c b/sys/x86/x86/mp_x86.c
-index 8ac5e4b4ddc2..9f0b64beb1da 100644
+index 6dab7987e208..b22e15df33f4 100644
 --- a/sys/x86/x86/mp_x86.c
 +++ b/sys/x86/x86/mp_x86.c
 @@ -89,6 +89,8 @@ __FBSDID("$FreeBSD$");
@@ -696,7 +688,7 @@ index 8ac5e4b4ddc2..9f0b64beb1da 100644
  static MALLOC_DEFINE(M_CPUS, "cpus", "CPU items");
  
  /* lock region used by kernel profiling */
-@@ -1277,6 +1279,7 @@ ipi_send_cpu(int cpu, u_int ipi)
+@@ -1307,6 +1309,7 @@ ipi_send_cpu(int cpu, u_int ipi)
  	KASSERT((u_int)cpu < MAXCPU && cpu_apic_ids[cpu] != -1,
  	    ("IPI to non-existent CPU %d", cpu));
  
@@ -704,7 +696,7 @@ index 8ac5e4b4ddc2..9f0b64beb1da 100644
  	if (IPI_IS_BITMAPED(ipi)) {
  		if (ipi_bitmap_set(cpu, ipi))
  			return;
-@@ -1295,6 +1298,7 @@ ipi_bitmap_handler(struct trapframe frame)
+@@ -1325,6 +1328,7 @@ ipi_bitmap_handler(struct trapframe frame)
  
  	kasan_mark(&frame, sizeof(frame), sizeof(frame), 0);
  
@@ -712,7 +704,7 @@ index 8ac5e4b4ddc2..9f0b64beb1da 100644
  	td = curthread;
  	ipi_bitmap = atomic_readandclear_int(&cpuid_to_pcpu[cpu]->
  	    pc_ipi_bitmap);
-@@ -1338,6 +1342,7 @@ ipi_bitmap_handler(struct trapframe frame)
+@@ -1368,6 +1372,7 @@ ipi_bitmap_handler(struct trapframe frame)
  	td->td_intr_nesting_level--;
  	if (ipi_bitmap & (1 << IPI_HARDCLOCK))
  		critical_exit();
@@ -720,7 +712,7 @@ index 8ac5e4b4ddc2..9f0b64beb1da 100644
  }
  
  /*
-@@ -1483,6 +1488,7 @@ cpustop_handler(void)
+@@ -1513,6 +1518,7 @@ cpustop_handler(void)
  	u_int cpu;
  	bool use_mwait;
  
@@ -728,7 +720,7 @@ index 8ac5e4b4ddc2..9f0b64beb1da 100644
  	cpu = PCPU_GET(cpuid);
  
  	savectx(&stoppcbs[cpu]);
-@@ -1520,6 +1526,7 @@ cpustop_handler(void)
+@@ -1550,6 +1556,7 @@ cpustop_handler(void)
  	}
  
  	cpustop_handler_post(cpu);
