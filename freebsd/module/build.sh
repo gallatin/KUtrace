@@ -1,11 +1,20 @@
-# Build file for KUtrace control and postprocessing programs
-# dsites 2022.06.11
+#!/bin/sh
 
-c++ -O2 kutrace_control.cc kutrace_lib.cc -o kutrace_control
+SRC="$1"
+# XXXX Netflix
+if [ -z "$SRC" ]; then
+	SRC=$(cd "../../../FreeBSD/" && pwd)
+fi
 
-c++ -O2 rawtoevent.cc from_base40.cc kutrace_lib.cc -o rawtoevent
-c++ -O2 eventtospan3.cc -o eventtospan3
-c++ -O2 makeself.cc -o makeself
+shift
 
-c++ -O2 spantospan.cc -o spantospan
-c++ -O2 spantotrim.cc from_base40.cc -o spantotrim
+DBG='DEBUG_FLAGS=-g'
+echo "The FreeBSD source tree is at $SRC ..."
+make -m $SRC/share/mk SYSDIR=$SRC/sys  $DBG clean cleandepend
+if [ $1 = "clean" ]; then
+	exit
+fi
+make -m $SRC/share/mk SYSDIR=$SRC/sys  $DBG depend
+make -m $SRC/share/mk SYSDIR=$SRC/sys  $DBG all -j12
+#make -m $SRC/share/mk SYSDIR=$SRC/sys  $DBG install
+
